@@ -1,5 +1,5 @@
 # unifi-requests
-Minimalistic Ubiquiti Unifi controller API client which takes care of authentification and CSRF handling.
+Minimalistic Ubiquiti Unifi controller API client which takes care of authentication and CSRF handling.
 
 ## Examples
 
@@ -72,7 +72,6 @@ Minimalistic Ubiquiti Unifi controller API client which takes care of authentifi
 ### Update traffic policy-based route
 
 ```pycon
-/proxy/network/v2/api/site/default/trafficroutes/68fd3ff1c31d3724f0021f04
 >>> import json
 >>> import requests
 >>> from unifi_requests.auth import UnifiControllerAuth
