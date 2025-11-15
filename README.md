@@ -10,7 +10,7 @@ Ubiquiti Unifi Controller API authorization class for python requests library. T
 >>> import json
 >>> import requests
 >>> from requests_unifi_auth import UnifiControllerAuth
->>> auth = UnifiControllerAuth('your_username', 'your_password', 'https://192.168.1.1')
+>>> auth = UnifiControllerAuth('your_username', 'your_password', '192.168.1.1')
 >>> resp = requests.get('https://192.168.1.1/proxy/network/v2/api/site/default/trafficroutes', verify=False, auth=auth)
 >>> print(json.dumps(resp.json(), indent=4))
 [
@@ -77,7 +77,7 @@ Ubiquiti Unifi Controller API authorization class for python requests library. T
 >>> import requests
 >>> from requests_unifi_auth import UnifiControllerAuth
 >>> s = requests.Session()
->>> s.auth = UnifiControllerAuth('your_username', 'your_password', 'https://192.168.1.1')
+>>> s.auth = UnifiControllerAuth('your_username', 'your_password', '192.168.1.1')
 >>> resp = s.get('https://192.168.1.1/proxy/network/v2/api/site/default/trafficroutes', verify=False)
 >>> rules = resp.json()
 >>> updated_rule = rules[0]
