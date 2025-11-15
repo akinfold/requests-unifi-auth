@@ -1,4 +1,4 @@
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from requests import Request, Response, PreparedRequest
 from requests.auth import AuthBase
@@ -10,8 +10,8 @@ class UnifiControllerAuth(AuthBase):
     AUTH_URL = '/api/auth/login'
     AUTH_METHOD = 'POST'
 
-    def __init__(self, controller_url: str, username: str, password: str):
-        self.controller_url_parsed = urlparse(controller_url)
+    def __init__(self, username: str, password: str, controller_netloc: str):
+        self.controller_netloc = controller_netloc
         self.username = username
         self.password = password
         self._cookies = None
@@ -31,7 +31,15 @@ class UnifiControllerAuth(AuthBase):
         return False
 
     def authorize(self, response, **kwargs) -> bool:
-        url = self.controller_url_parsed._replace(path=self.AUTH_URL, params='', query='', fragment='').geturl()
+        resp_url_parsed = urlparse(response.url)
+        url = urlunparse((
+            resp_url_parsed.scheme, # scheme
+            self.controller_netloc, # netloc
+            self.AUTH_URL,          # path
+            '',                     # params
+            '',                     # query
+            ''                      # fragment
+        ))
         body = {
             "username": self.username,
             "password": self.password,
@@ -64,7 +72,7 @@ class UnifiControllerAuth(AuthBase):
 
         # If request was made to a host other than controller_url do not auth.
         original_url_parsed = urlparse(response.url)
-        if original_url_parsed.netloc != self.controller_url_parsed.netloc:
+        if original_url_parsed.netloc != self.controller_netloc:
             return response
 
         if not self.authorize(response, **kwargs):
