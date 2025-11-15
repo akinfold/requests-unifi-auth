@@ -1,5 +1,6 @@
-# unifi-requests
-Minimalistic Ubiquiti Unifi controller API client which takes care of authentication and CSRF handling.
+# requests-unifi-auth
+
+Ubiquiti Unifi Controller API authorization class for python requests library. Takes care of authentification and CSRF handling. 
 
 ## Examples
 
@@ -8,7 +9,7 @@ Minimalistic Ubiquiti Unifi controller API client which takes care of authentica
 ```pycon
 >>> import json
 >>> import requests
->>> from unifi_requests.auth import UnifiControllerAuth
+>>> from requests_unifi_auth import UnifiControllerAuth
 >>> auth = UnifiControllerAuth('your_username', 'your_password', 'https://192.168.1.1')
 >>> resp = requests.get('https://192.168.1.1/proxy/network/v2/api/site/default/trafficroutes', verify=False, auth=auth)
 >>> print(json.dumps(resp.json(), indent=4))
@@ -74,7 +75,7 @@ Minimalistic Ubiquiti Unifi controller API client which takes care of authentica
 ```pycon
 >>> import json
 >>> import requests
->>> from unifi_requests.auth import UnifiControllerAuth
+>>> from requests_unifi_auth import UnifiControllerAuth
 >>> s = requests.Session()
 >>> s.auth = UnifiControllerAuth('your_username', 'your_password', 'https://192.168.1.1')
 >>> resp = s.get('https://192.168.1.1/proxy/network/v2/api/site/default/trafficroutes', verify=False)

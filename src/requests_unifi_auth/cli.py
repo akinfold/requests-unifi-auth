@@ -6,7 +6,7 @@ from typing import Tuple, Dict, List, Optional
 import click
 import requests
 
-from unifi_requests.auth import UnifiControllerAuth
+from requests_unifi_auth import UnifiControllerAuth
 
 AUTH_REGEXP = re.compile(r'^(?P<username>[^:]+):(?P<password>[^@]+)@(?P<host>[^\s]+)\s*')
 """Match auth strings like 'foo:bar@192.168.1.1'."""
