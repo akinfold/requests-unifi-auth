@@ -36,9 +36,9 @@ ignore_missing_version = false
 tag = true
 sign_tags = false
 tag_name = "v{new_version}"
-tag_message = "Release v${new_version}"
+tag_message = "Release v{new_version}"
 allow_dirty = false
-commit = false
+commit = true
 message = "chore: Bump version {current_version} → {new_version}"
 commit_args = ""
 
