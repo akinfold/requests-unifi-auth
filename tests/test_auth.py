@@ -1,7 +1,8 @@
+from unittest.mock import Mock, patch
+
 import pytest
 import requests
-from unittest.mock import Mock, patch
-from requests import PreparedRequest, Response
+from requests import PreparedRequest, Request, Response
 from requests.cookies import RequestsCookieJar
 
 from requests_unifi_auth.auth import UnifiControllerAuth
@@ -12,15 +13,6 @@ class TestUnifiControllerAuth:
     @pytest.fixture
     def auth(self):
         return UnifiControllerAuth("test_user", "test_pass", "ctrl.example")
-
-    @pytest.fixture
-    def mock_response(self):
-        response = Mock(spec=Response)
-        response.status_code = 200
-        response.url = "https://ctrl.example/api/test"
-        response.headers = {}
-        response.cookies = None
-        return response
 
     def test_init(self):
         auth = UnifiControllerAuth("user", "pass", "ctrl.example")
@@ -61,6 +53,31 @@ class TestUnifiControllerAuth:
         assert result is False
         assert auth._cookies is None
 
+    def test_set_cookie_updates_existing_cookie_jar(self, auth):
+        response = Mock()
+        cookie_jar = RequestsCookieJar()
+        cookie_jar.set("session", "old_value", domain="ctrl.example", path="/")
+        response.cookies = cookie_jar
+
+        new_cookie_jar = RequestsCookieJar()
+        new_cookie_jar.set("session", "new_value", domain="ctrl.example", path="/")
+        auth._cookies = new_cookie_jar
+
+        result = auth.set_cookie(response)
+
+        assert result is True
+        assert auth._cookies is cookie_jar
+        assert auth._cookies.get("session") == "old_value"
+
+    def test_prepare_request_handles_empty_cookies(self, auth):
+        req = requests.Request("POST", "https://ctrl.example/api/endpoint")
+        preq = requests.Session().prepare_request(req)
+
+        auth._cookies = None
+        auth.prepare_request(preq)
+
+        assert "Cookie" not in preq.headers
+
     def test_update_csrf_token_success(self, auth):
         response = Mock()
         response.headers = {'x-updated-csrf-token': 'test-token'}
@@ -78,6 +95,15 @@ class TestUnifiControllerAuth:
 
         assert result is False
         assert auth._csrf_token is None
+
+    def test_prepare_request_handles_no_csrf_token(self, auth):
+        req = requests.Request("POST", "https://ctrl.example/api/endpoint")
+        preq = requests.Session().prepare_request(req)
+
+        auth._csrf_token = None
+        auth.prepare_request(preq)
+
+        assert "X-CSRF-Token" not in preq.headers
 
     def test_prepare_request_sets_cookies_and_csrf_on_prepared_request(self):
         auth = UnifiControllerAuth("u", "p", "ctrl.example")
@@ -264,6 +290,129 @@ class TestUnifiControllerAuth:
         mock_request_instance = Mock()
         mock_request_instance.prepare.return_value = mock_prepared_request
         mock_request.return_value = mock_request_instance
+
+        result = auth.authorize(response)
+
+        assert result is False
+
+    def test_handle_401_authorize_success_retries_request(self):
+        auth = UnifiControllerAuth("u", "p", "ctrl.example")
+        auth.authorize = Mock(return_value=True)
+        auth.prepare_request = Mock()
+
+        # Build the original 401 response
+        resp = Mock(spec=Response)
+        resp.status_code = 401
+        resp.url = "https://ctrl.example/api/test"
+
+        # Original request must support copy(), returning a retry request that supports deregister_hook()
+        original_req = Mock()
+        retry_req = Mock()
+        original_req.copy.return_value = retry_req
+        retry_req.deregister_hook = Mock()
+        resp.request = original_req
+
+        # Connection should return a retry response when sending the retry request
+        connection = Mock()
+        retry_resp = Mock(spec=Response)
+        retry_resp.history = []
+        connection.send.return_value = retry_resp
+        resp.connection = connection
+
+        returned = auth.handle_401(resp)
+
+        assert returned is retry_resp
+        # original response should be appended to history
+        assert returned.history[-1] is resp
+        # returned.request should be set to the retry request
+        assert returned.request is retry_req
+        # deregister_hook must be called to avoid infinite loop
+        retry_req.deregister_hook.assert_called_once_with('response', auth.handle_401)
+        # prepare_request should be invoked on the retry request
+        auth.prepare_request.assert_called_once_with(retry_req)
+
+    def test_prepare_request_assigns_cookies_to_unprepared_request(self):
+        auth = UnifiControllerAuth("u", "p", "ctrl.example")
+        jar = RequestsCookieJar()
+        jar.set("session", "abc123", domain="ctrl.example", path="/")
+        auth._cookies = jar
+
+        req = Request("POST", "https://ctrl.example/api/endpoint")
+        # ensure no cookies initially
+        assert getattr(req, "cookies", None) is None
+
+        auth.prepare_request(req)
+
+        assert getattr(req, "cookies", None) is jar
+        assert req.cookies.get("session") == "abc123"
+
+    @patch('requests_unifi_auth.auth.Request')
+    @patch('requests_unifi_auth.auth.urlparse')
+    @patch('requests_unifi_auth.auth.urlunparse')
+    def test_authorize_failure_set_cookie_no_cookies(self, mock_urlunparse, mock_urlparse, mock_request, auth):
+        # Setup URL parsing mocks
+        mock_urlparse.return_value.scheme = 'https'
+        mock_urlparse.return_value.netloc = 'ctrl.example'
+        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
+
+        # Setup response mock
+        response = Mock()
+        response.url = 'https://ctrl.example/test'
+        response.content = b''
+        response.close = Mock()
+
+        # Setup connection mock with response that has set-cookie header but no cookies
+        auth_response = Mock()
+        auth_response.status_code = 200
+        auth_response.headers = {'set-cookie': 'session=123'}
+        auth_response.cookies = None  # cause set_cookie to return False
+        connection_mock = Mock()
+        connection_mock.send.return_value = auth_response
+        response.connection = connection_mock
+
+        # Setup request preparation mocks
+        mock_prepared_request = Mock()
+        mock_request_instance = Mock()
+        mock_request_instance.prepare.return_value = mock_prepared_request
+        mock_request.return_value = mock_request_instance
+
+        result = auth.authorize(response)
+
+        assert result is False
+
+    @patch('requests_unifi_auth.auth.Request')
+    @patch('requests_unifi_auth.auth.urlparse')
+    @patch('requests_unifi_auth.auth.urlunparse')
+    def test_authorize_failure_update_csrf_token_returns_false(self, mock_urlunparse, mock_urlparse, mock_request, auth):
+        # Setup URL parsing mocks
+        mock_urlparse.return_value.scheme = 'https'
+        mock_urlparse.return_value.netloc = 'ctrl.example'
+        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
+
+        # Setup response mock
+        response = Mock()
+        response.url = 'https://ctrl.example/test'
+        response.content = b''
+        response.close = Mock()
+
+        # Setup connection mock with a successful auth response that includes set-cookie
+        auth_response = Mock()
+        auth_response.status_code = 200
+        auth_response.headers = {'set-cookie': 'session=123'}
+        auth_response.cookies = RequestsCookieJar()
+        connection_mock = Mock()
+        connection_mock.send.return_value = auth_response
+        response.connection = connection_mock
+
+        # Setup request preparation mocks
+        mock_prepared_request = Mock()
+        mock_request_instance = Mock()
+        mock_request_instance.prepare.return_value = mock_prepared_request
+        mock_request.return_value = mock_request_instance
+
+        # Simulate set_cookie succeeding but update_csrf_token failing
+        auth.set_cookie = Mock(return_value=True)
+        auth.update_csrf_token = Mock(return_value=False)
 
         result = auth.authorize(response)
 

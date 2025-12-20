@@ -81,8 +81,6 @@ class UnifiControllerAuth(AuthBase):
 
         # If request was made to a host other than controller_url do not auth.
         original_netloc = urlparse(response.url).netloc
-        if isinstance(original_netloc, (bytes, bytearray)):
-            original_netloc = original_netloc.decode()
         if original_netloc != self.controller_netloc:
             return response
 
