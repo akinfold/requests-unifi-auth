@@ -10,7 +10,16 @@ class UnifiControllerAuth(AuthBase):
     AUTH_URL = '/api/auth/login'
     AUTH_METHOD = 'POST'
 
-    def __init__(self, username: str, password: str, controller_netloc: str):
+    def __init__(self, username: str, password: str, controller_netloc: str) -> None:
+        """
+        Initializes the authentication object with the provided credentials and controller network location.
+
+        Args:
+            username (str): The username for authentication.
+            password (str): The password for authentication.
+            controller_netloc (str): The network location (host:port) of the controller.
+        """
+
         self.controller_netloc = controller_netloc
         self.username = username
         self.password = password
@@ -71,8 +80,10 @@ class UnifiControllerAuth(AuthBase):
             return response
 
         # If request was made to a host other than controller_url do not auth.
-        original_url_parsed = urlparse(response.url)
-        if original_url_parsed.netloc != self.controller_netloc:
+        original_netloc = urlparse(response.url).netloc
+        if isinstance(original_netloc, (bytes, bytearray)):
+            original_netloc = original_netloc.decode()
+        if original_netloc != self.controller_netloc:
             return response
 
         if not self.authorize(response, **kwargs):

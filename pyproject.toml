@@ -22,6 +22,33 @@ dependencies = ["requests>=2.25"]
 Homepage = "https://github.com/akinfold/requests-unifi-auth"
 Source = "https://github.com/akinfold/requests-unifi-auth"
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "--showlocals",
+    "--tb=short"
+]
+
+[tool.coverage.run]
+source = ["src/"]
+omit = [
+    "*/tests/*",
+    "*/test_*"
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
