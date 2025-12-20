@@ -1,5 +1,5 @@
 # requests-unifi-auth
-+ [![cov](https://akinfold.github.io/requests-unifi-auth/badges/coverage.svg)](https://github.com/akinfold/requests-unifi-auth/actions)
+[![cov](https://akinfold.github.io/requests-unifi-auth/badges/coverage.svg)](https://github.com/akinfold/requests-unifi-auth/actions)
 
 Ubiquiti Unifi Controller API authorization class for python requests library. Takes care of authentification and CSRF handling.
 
