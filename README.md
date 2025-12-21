@@ -1,8 +1,9 @@
 # requests-unifi-auth
 
-[![pypi](https://img.shields.io/pypi/v/requests-unifi-auth)](https://pypi.org/project/requests-unifi-auth/) [![cov](https://akinfold.github.io/requests-unifi-auth/badges/coverage.svg)](https://github.com/akinfold/requests-unifi-auth/actions)
+[![PYPI](https://img.shields.io/pypi/v/requests-unifi-auth)](https://pypi.org/project/requests-unifi-auth/) [![coverage](https://akinfold.github.io/requests-unifi-auth/badges/coverage.svg)](https://github.com/akinfold/requests-unifi-auth/actions) [![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/akinfold/requests-unifi-auth/blob/main/LICENSE) ![versions](https://img.shields.io/pypi/pyversions/requests-unifi-auth) [![CodeFactor](https://www.codefactor.io/repository/github/akinfold/requests-unifi-auth/badge)](https://www.codefactor.io/repository/github/akinfold/requests-unifi-auth)
 
-Ubiquiti Unifi Controller API authorization class for python requests library. Takes care of authentification and CSRF handling.
+Ubiquiti Unifi Controller API authorization class for python requests library. Takes care of authentification and CSRF
+handling.
 
 ## Installation
 
