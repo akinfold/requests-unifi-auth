@@ -34,12 +34,16 @@ pythonpath = ["src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "e2e: live tests against a real UniFi controller (LAN)",
+]
 addopts = [
     "--strict-markers",
     "--strict-config",
     "-ra",
     "--showlocals",
-    "--tb=short"
+    "--tb=short",
+    "-m not e2e",
 ]
 
 [tool.coverage.run]

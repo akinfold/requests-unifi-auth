@@ -123,3 +123,61 @@ pip install requests-unifi-auth
     ]
 }
 ```
+
+## Compatibility
+
+See [COMPATIBILITY.md](COMPATIBILITY.md) for live end-to-end results against real UniFi
+controllers.
+
+## Live end-to-end tests
+
+These tests talk to a real controller on your LAN. They are skipped in CI and in a default
+`pytest` run (`-m "not e2e"`).
+
+### 1. Create a dedicated controller account
+
+In UniFi OS → Admins / Users, add a **local** user used only for these tests (do not use your
+owner / Super Admin account):
+
+- Username example: `e2e-requests-unifi-auth`
+- Role: **Admin** (or Site Admin) on the Network application for the site you will hit
+  (usually `default`), with permission to create and delete **Firewall Address Groups**
+- Do not grant Owner / Super Admin, SSH, or access to Protect / Access / Talk unless you must
+- Use a long random password stored only in the config file (or a password manager)
+
+For read-only accounts, set `UNIFI_E2E_SKIP_WRITE=true` in the config file.
+
+### 2. Create the credentials file (outside the git tree)
+
+Do **not** put passwords inside the repository clone or in cloud-synced folders.
+
+Interactive setup (prompts for host, username, password, TLS and write-test flags):
+
+```bash
+chmod +x scripts/init_e2e_config.sh
+./scripts/init_e2e_config.sh
+```
+
+The script writes `~/.config/requests-unifi-auth/e2e.env` with mode `600` (or
+`$XDG_CONFIG_HOME/requests-unifi-auth/e2e.env`). To use another path:
+
+```bash
+UNIFI_E2E_CONFIG=/absolute/path/to/e2e.env ./scripts/init_e2e_config.sh
+```
+
+Optional overrides after the file exists:
+
+- Environment variables with the same `UNIFI_E2E_*` names override values from the file
+- Template without secrets: [`e2e.config.example.env`](e2e.config.example.env)
+
+### 3. Run the live suite
+
+```bash
+pip install -e ".[test]"
+pytest -m e2e
+```
+
+On success, `COMPATIBILITY.md` is updated; commit it when you want to publish the result.
+On failure, redacted diagnostics are written to `e2e-diagnostics.md` — attach that file when
+opening a GitHub issue (use the **E2E failure** template). Never paste passwords, cookies, or
+raw CSRF tokens.
