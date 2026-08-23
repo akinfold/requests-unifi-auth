@@ -68,7 +68,8 @@ def test_bad_password_does_not_authenticate(
     verify_ssl: bool,
     diagnostics: DiagnosticsCollector,
 ) -> None:
-    host, username, _, _ = e2e_config
+    host = e2e_config.host
+    username = e2e_config.username
     netloc = host.split("://", 1)[-1] if "://" in host else host
     bad_auth = UnifiControllerAuth(username, "definitely-wrong-password", netloc)
     s = requests.Session()

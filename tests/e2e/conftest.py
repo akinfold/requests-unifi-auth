@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
@@ -15,6 +14,7 @@ import urllib3
 from requests_unifi_auth import UnifiControllerAuth
 from requests_unifi_auth import __version__ as PACKAGE_VERSION
 
+from .config import E2ESettings, load_e2e_settings, missing_config_message
 from .diagnostics import DiagnosticsCollector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -25,22 +25,8 @@ PROTECTED_GET_PATH = "/proxy/network/api/s/default/self"
 SYSINFO_PATH = "/proxy/network/api/s/default/stat/sysinfo"
 SYSTEM_PATH = "/api/system"
 
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def e2e_credentials() -> Optional[Tuple[str, str, str, bool]]:
-    host = os.environ.get("UNIFI_E2E_HOST", "").strip()
-    username = os.environ.get("UNIFI_E2E_USERNAME", "").strip()
-    password = os.environ.get("UNIFI_E2E_PASSWORD", "").strip()
-    if not host or not username or not password:
-        return None
-    verify_ssl = _env_flag("UNIFI_E2E_VERIFY_SSL", default=False)
-    return host, username, password, verify_ssl
+# Session password kept off fixture values that pytest may print.
+_PASSWORD_BY_CONFIG_ID: Dict[int, str] = {}
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -50,32 +36,38 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 @pytest.fixture(scope="session")
-def e2e_config() -> Tuple[str, str, str, bool]:
-    creds = e2e_credentials()
-    if creds is None:
-        pytest.skip(
-            "Set UNIFI_E2E_HOST, UNIFI_E2E_USERNAME, and UNIFI_E2E_PASSWORD to run live e2e"
-        )
-    return creds
+def e2e_config() -> E2ESettings:
+    loaded = load_e2e_settings()
+    if loaded is None:
+        pytest.skip(missing_config_message())
+    settings, password = loaded
+    _PASSWORD_BY_CONFIG_ID[id(settings)] = password
+    return settings
 
 
 @pytest.fixture(scope="session")
-def diagnostics(e2e_config: Tuple[str, str, str, bool]) -> Iterator[DiagnosticsCollector]:
-    host, _, _, _ = e2e_config
-    collector = DiagnosticsCollector(controller_host=host)
+def e2e_password(e2e_config: E2ESettings) -> str:
+    password = _PASSWORD_BY_CONFIG_ID.get(id(e2e_config))
+    if not password:
+        pytest.skip(missing_config_message())
+    return password
+
+
+@pytest.fixture(scope="session")
+def diagnostics(e2e_config: E2ESettings) -> Iterator[DiagnosticsCollector]:
+    collector = DiagnosticsCollector(controller_host=e2e_config.host)
     yield collector
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _disable_insecure_warnings(e2e_config: Tuple[str, str, str, bool]) -> None:
-    _, _, _, verify_ssl = e2e_config
-    if not verify_ssl:
+def _disable_insecure_warnings(e2e_config: E2ESettings) -> None:
+    if not e2e_config.verify_ssl:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 @pytest.fixture
-def base_url(e2e_config: Tuple[str, str, str, bool]) -> str:
-    host, _, _, _ = e2e_config
+def base_url(e2e_config: E2ESettings) -> str:
+    host = e2e_config.host
     if "://" in host:
         parsed = urlparse(host)
         return f"{parsed.scheme}://{parsed.netloc}"
@@ -83,15 +75,15 @@ def base_url(e2e_config: Tuple[str, str, str, bool]) -> str:
 
 
 @pytest.fixture
-def verify_ssl(e2e_config: Tuple[str, str, str, bool]) -> bool:
-    return e2e_config[3]
+def verify_ssl(e2e_config: E2ESettings) -> bool:
+    return e2e_config.verify_ssl
 
 
 @pytest.fixture
-def auth(e2e_config: Tuple[str, str, str, bool]) -> UnifiControllerAuth:
-    host, username, password, _ = e2e_config
+def auth(e2e_config: E2ESettings, e2e_password: str) -> UnifiControllerAuth:
+    host = e2e_config.host
     netloc = urlparse(host).netloc if "://" in host else host
-    return UnifiControllerAuth(username, password, netloc)
+    return UnifiControllerAuth(e2e_config.username, e2e_password, netloc)
 
 
 @pytest.fixture
@@ -209,7 +201,10 @@ def _publish_diagnostics(
     diagnostics: DiagnosticsCollector,
 ) -> Iterator[None]:
     request.config._e2e_diagnostics = diagnostics  # type: ignore[attr-defined]
-    state = request.config._e2e_session_state  # type: ignore[attr-defined]
+    state = getattr(request.config, "_e2e_session_state", None)
+    if state is None:
+        state = {"failed": False, "versions": {}, "ran": False}
+        request.config._e2e_session_state = state  # type: ignore[attr-defined]
     yield
     state["versions"] = {
         "network_version": diagnostics.network_version,
