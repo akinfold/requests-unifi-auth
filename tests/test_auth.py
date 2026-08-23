@@ -26,11 +26,14 @@ class TestUnifiControllerAuth:
         a = UnifiControllerAuth("user", "pass", "ctrl.example")
         b = UnifiControllerAuth("user", "pass", "ctrl.example")
         c = UnifiControllerAuth("other", "pass", "ctrl.example")
+        d = UnifiControllerAuth("user", "pass", "other.example")
 
         assert a == b
         assert not (a != b)
         assert a != c
         assert not (a == c)
+        assert a != d
+        assert not (a == d)
 
     def test_set_cookie_success(self, auth):
         response = Mock()
@@ -132,7 +135,7 @@ class TestUnifiControllerAuth:
         auth._csrf_token = "csrf-token"
 
         # Test with safe methods that shouldn't get CSRF token
-        for method in ['GET', 'OPTION', 'HEAD']:
+        for method in ["GET", "OPTIONS", "HEAD"]:
             req = requests.Request(method, "https://ctrl.example/api/endpoint")
             preq = requests.Session().prepare_request(req)
 
@@ -304,6 +307,7 @@ class TestUnifiControllerAuth:
         resp = Mock(spec=Response)
         resp.status_code = 401
         resp.url = "https://ctrl.example/api/test"
+        resp.headers = {}
 
         # Original request must support copy(), returning a retry request that supports deregister_hook()
         original_req = Mock()
@@ -380,25 +384,27 @@ class TestUnifiControllerAuth:
 
         assert result is False
 
-    @patch('requests_unifi_auth.auth.Request')
-    @patch('requests_unifi_auth.auth.urlparse')
-    @patch('requests_unifi_auth.auth.urlunparse')
-    def test_authorize_failure_update_csrf_token_returns_false(self, mock_urlunparse, mock_urlparse, mock_request, auth):
+    @patch("requests_unifi_auth.auth.Request")
+    @patch("requests_unifi_auth.auth.urlparse")
+    @patch("requests_unifi_auth.auth.urlunparse")
+    def test_authorize_succeeds_without_csrf_token(
+        self, mock_urlunparse, mock_urlparse, mock_request, auth
+    ):
         # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = 'https'
-        mock_urlparse.return_value.netloc = 'ctrl.example'
-        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
+        mock_urlparse.return_value.scheme = "https"
+        mock_urlparse.return_value.netloc = "ctrl.example"
+        mock_urlunparse.return_value = "https://ctrl.example/api/auth/login"
 
         # Setup response mock
         response = Mock()
-        response.url = 'https://ctrl.example/test'
-        response.content = b''
+        response.url = "https://ctrl.example/test"
+        response.content = b""
         response.close = Mock()
 
         # Setup connection mock with a successful auth response that includes set-cookie
         auth_response = Mock()
         auth_response.status_code = 200
-        auth_response.headers = {'set-cookie': 'session=123'}
+        auth_response.headers = {"set-cookie": "session=123"}
         auth_response.cookies = RequestsCookieJar()
         connection_mock = Mock()
         connection_mock.send.return_value = auth_response
@@ -410,10 +416,35 @@ class TestUnifiControllerAuth:
         mock_request_instance.prepare.return_value = mock_prepared_request
         mock_request.return_value = mock_request_instance
 
-        # Simulate set_cookie succeeding but update_csrf_token failing
+        # CSRF may be absent on login; authorize should still succeed.
         auth.set_cookie = Mock(return_value=True)
         auth.update_csrf_token = Mock(return_value=False)
 
         result = auth.authorize(response)
 
-        assert result is False
+        assert result is True
+        auth.update_csrf_token.assert_called_once_with(auth_response)
+
+    def test_handle_401_refreshes_csrf_on_non_401(self, auth):
+        auth._csrf_token = "old-token"
+        resp = Response()
+        resp.status_code = 200
+        resp.url = "https://ctrl.example/api/test"
+        resp.headers["x-updated-csrf-token"] = "rotated-token"
+
+        returned = auth.handle_401(resp)
+
+        assert returned is resp
+        assert auth._csrf_token == "rotated-token"
+
+    def test_handle_401_skips_session_refresh_for_other_host(self, auth):
+        auth._csrf_token = "old-token"
+        resp = Response()
+        resp.status_code = 200
+        resp.url = "https://other.example/api/test"
+        resp.headers["x-updated-csrf-token"] = "should-not-apply"
+
+        returned = auth.handle_401(resp)
+
+        assert returned is resp
+        assert auth._csrf_token == "old-token"

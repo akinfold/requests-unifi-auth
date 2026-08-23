@@ -110,8 +110,8 @@ exclude = [
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.10
-target-version = "py310"
+# Match requires-python
+target-version = "py38"
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
