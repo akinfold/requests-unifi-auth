@@ -4,13 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPATIBILITY_PATH = REPO_ROOT / "COMPATIBILITY.md"
+BADGE_PATH = REPO_ROOT / "badges" / "unifi-network.json"
 
 HEADER = (
     "| Package | UniFi Network | UniFi OS | Date (UTC) | Result | Notes |\n"
@@ -66,6 +68,54 @@ def _format_row(
     )
 
 
+def _version_key(version: str) -> Optional[Tuple[int, ...]]:
+    parts = version.strip().split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def latest_network_version(versions: Sequence[str]) -> Optional[str]:
+    best: Optional[str] = None
+    best_key: Optional[Tuple[int, ...]] = None
+    for version in versions:
+        key = _version_key(version)
+        if key is None:
+            continue
+        if best_key is None or key > best_key:
+            best_key = key
+            best = version.strip()
+    return best
+
+
+def write_unifi_network_badge(
+    network_version: str,
+    *,
+    path: Path = BADGE_PATH,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schemaVersion": 1,
+        "label": "UniFi Network",
+        "message": network_version,
+        "color": "blue",
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def update_unifi_network_badge_from_matrix(
+    *,
+    compatibility_path: Path = COMPATIBILITY_PATH,
+    badge_path: Path = BADGE_PATH,
+) -> Optional[Path]:
+    versions = list_tested_network_versions(compatibility_path)
+    latest = latest_network_version(versions)
+    if latest is None:
+        return None
+    return write_unifi_network_badge(latest, path=badge_path)
+
+
 def update_compatibility_file(
     *,
     package_version: str,
@@ -74,6 +124,7 @@ def update_compatibility_file(
     result: str = "pass",
     notes: str = "live e2e",
     path: Path = COMPATIBILITY_PATH,
+    badge_path: Path = BADGE_PATH,
     date: Optional[str] = None,
 ) -> Path:
     date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -132,6 +183,9 @@ def update_compatibility_file(
         body += postamble if postamble.startswith("\n") else postamble
 
     path.write_text(body, encoding="utf-8")
+    update_unifi_network_badge_from_matrix(
+        compatibility_path=path, badge_path=badge_path
+    )
     return path
 
 
@@ -167,6 +221,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         notes=args.notes,
     )
     print(path)
+    if BADGE_PATH.exists():
+        print(BADGE_PATH)
     return 0
 
 

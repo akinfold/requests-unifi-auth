@@ -1,20 +1,39 @@
-# yaml
-name: Publish Python Package
+# Publish on semver tag push: test → build → PyPI → GitHub Release.
+# Bump the version on main first, then: git tag vX.Y.Z && git push origin vX.Y.Z
+name: Publish
 
 on:
-  release:
-    types: [published]
-
-permissions:
-  contents: read
+  push:
+    tags:
+      - "v*.*.*"
 
 jobs:
-  release-build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install project
+        run: uv sync --all-extras --dev
+
+      - name: Run tests
+        run: uv run pytest --cov --cov-report json
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.10"
 
@@ -27,28 +46,44 @@ jobs:
       - name: Upload distributions
         uses: actions/upload-artifact@v4
         with:
-          name: requests-unifi-auth-${{ github.event.release.tag_name }}
+          name: dist-${{ github.ref_name }}
           path: dist/
 
   pypi-publish:
     runs-on: ubuntu-latest
-    needs:
-      - release-build
-
+    needs: build
     permissions:
       id-token: write
-
-    # Dedicated environments with protections for publishing are strongly recommended.
     environment:
       name: pypi
       url: https://pypi.org/p/requests-unifi-auth
-
     steps:
       - name: Retrieve release distributions
         uses: actions/download-artifact@v5
         with:
-          name: requests-unifi-auth-${{ github.event.release.tag_name }}
+          name: dist-${{ github.ref_name }}
           path: dist/
 
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+      - pypi-publish
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve release distributions
+        uses: actions/download-artifact@v5
+        with:
+          name: dist-${{ github.ref_name }}
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
