@@ -172,9 +172,20 @@ Optional overrides after the file exists:
 
 ### 3. Run the live suite
 
+From the repository root, use the project virtualenv (so `pytest` is on `PATH`):
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[test]"
 pytest -m e2e
+```
+
+Without activating the venv:
+
+```bash
+.venv/bin/pip install -e ".[test]"
+.venv/bin/pytest -m e2e
 ```
 
 On success, `COMPATIBILITY.md` is updated; commit it when you want to publish the result.
