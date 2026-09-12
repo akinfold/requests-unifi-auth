@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upsert a pass row into COMPATIBILITY.md after a successful live e2e run."""
+"""Upsert a pass row into COMPATIBILITY.md after a successful e2e run."""
 
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ def update_compatibility_file(
     network_version: str,
     os_version: str = "unknown",
     result: str = "pass",
-    notes: str = "live e2e",
+    notes: str = "e2e",
     path: Path = COMPATIBILITY_PATH,
     badge_path: Path = BADGE_PATH,
     date: Optional[str] = None,
@@ -138,7 +138,7 @@ def update_compatibility_file(
     else:
         text = (
             "# Compatibility\n\n"
-            "Live end-to-end results against real UniFi controllers. "
+            "End-to-end compatibility results for tested UniFi software versions. "
             "Updated automatically by `pytest -m e2e` on success; commit the change.\n\n"
         )
 
@@ -210,7 +210,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--package-version", required=True)
     parser.add_argument("--network-version", required=True)
     parser.add_argument("--os-version", default="unknown")
-    parser.add_argument("--notes", default="live e2e")
+    parser.add_argument("--notes", default="e2e")
     parser.add_argument("--result", default="pass")
     args = parser.parse_args(argv)
     path = update_compatibility_file(

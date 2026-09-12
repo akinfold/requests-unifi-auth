@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, Optional
 from urllib.parse import urlparse
 
 import pytest
@@ -24,6 +24,7 @@ if str(REPO_ROOT / "scripts") not in sys.path:
 PROTECTED_GET_PATH = "/proxy/network/api/s/default/self"
 SYSINFO_PATH = "/proxy/network/api/s/default/stat/sysinfo"
 SYSTEM_PATH = "/api/system"
+DEVICE_PATH = "/proxy/network/api/s/default/stat/device"
 
 # Session password kept off fixture values that pytest may print.
 _PASSWORD_BY_CONFIG_ID: Dict[int, str] = {}
@@ -138,6 +139,31 @@ def probe_versions(
         diagnostics.record_error("probe system", "GET", f"{base_url}{SYSTEM_PATH}", exc)
         diagnostics.notes.append(f"system probe failed: {type(exc).__name__}")
 
+    if os_version is None:
+        try:
+            resp = session.get(
+                f"{base_url}{DEVICE_PATH}", verify=verify_ssl, timeout=30
+            )
+            diagnostics.record_response("probe gateway", resp)
+            if resp.ok:
+                payload = resp.json()
+                data = payload.get("data", []) if isinstance(payload, dict) else []
+                for device in data:
+                    if (
+                        isinstance(device, dict)
+                        and device.get("type") == "udm"
+                        and device.get("version")
+                    ):
+                        os_version = str(device["version"])
+                        break
+        except Exception as exc:  # noqa: BLE001
+            diagnostics.record_error(
+                "probe gateway", "GET", f"{base_url}{DEVICE_PATH}", exc
+            )
+            diagnostics.notes.append(
+                f"gateway version probe failed: {type(exc).__name__}"
+            )
+
     diagnostics.network_version = network_version
     diagnostics.os_version = os_version
     return {"network_version": network_version, "os_version": os_version}
@@ -187,7 +213,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
             package_version=PACKAGE_VERSION,
             network_version=str(network),
             os_version=str(os_ver),
-            notes="live e2e",
+            notes="e2e",
         )
         print(f"\n[e2e] Updated compatibility matrix: {path}")
         print("[e2e] Commit COMPATIBILITY.md when ready.")
