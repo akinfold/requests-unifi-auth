@@ -5,6 +5,9 @@
 Ubiquiti Unifi Controller API authorization class for python requests library. Takes care of authentication and CSRF
 handling.
 
+For a curl-like command-line interface built on this package, see
+[`uictlapi`](https://github.com/akinfold/uictlapi).
+
 ## Installation
 
 ```bash
