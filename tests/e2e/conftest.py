@@ -16,6 +16,7 @@ from requests_unifi_auth import __version__ as PACKAGE_VERSION
 
 from .config import E2ESettings, load_e2e_settings, missing_config_message
 from .diagnostics import DiagnosticsCollector
+from .gating import e2e_run_is_complete
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "scripts") not in sys.path:
@@ -120,7 +121,9 @@ def probe_versions(
                             network_version = str(data[key])
                             break
     except Exception as exc:  # noqa: BLE001 - probe must not fail the suite alone
-        diagnostics.record_error("probe sysinfo", "GET", f"{base_url}{SYSINFO_PATH}", exc)
+        diagnostics.record_error(
+            "probe sysinfo", "GET", f"{base_url}{SYSINFO_PATH}", exc
+        )
         diagnostics.notes.append(f"sysinfo probe failed: {type(exc).__name__}")
 
     try:
@@ -173,18 +176,24 @@ def probe_versions(
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):  # type: ignore[no-untyped-def]
     outcome = yield
     report = outcome.get_result()
-    if report.when != "call":
-        return
     state = getattr(item.session.config, "_e2e_session_state", None)
     if not state or "e2e" not in item.keywords:
         return
-    state["ran"] = True
+    state["phase_outcomes"].setdefault(item.name, {})[report.when] = report.outcome
+    if report.when == "call":
+        state["ran"] = True
     if report.failed:
         state["failed"] = True
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    session.config._e2e_session_state = {"failed": False, "versions": {}, "ran": False}  # type: ignore[attr-defined]
+    session.config._e2e_session_state = {  # type: ignore[attr-defined]
+        "failed": False,
+        "versions": {},
+        "ran": False,
+        "phase_outcomes": {},
+        "write_enabled": False,
+    }
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -193,7 +202,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         return
 
     collector = getattr(session.config, "_e2e_diagnostics", None)
-    if state.get("failed") or exitstatus != 0:
+    collected = {item.name for item in session.items if "e2e" in item.keywords}
+    if not e2e_run_is_complete(state, collected, exitstatus):
         if isinstance(collector, DiagnosticsCollector):
             path = collector.write()
             print(f"\n[e2e] Wrote redacted diagnostics to {path}")
@@ -225,12 +235,20 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 def _publish_diagnostics(
     request: pytest.FixtureRequest,
     diagnostics: DiagnosticsCollector,
+    e2e_config: E2ESettings,
 ) -> Iterator[None]:
     request.config._e2e_diagnostics = diagnostics  # type: ignore[attr-defined]
     state = getattr(request.config, "_e2e_session_state", None)
     if state is None:
-        state = {"failed": False, "versions": {}, "ran": False}
+        state = {
+            "failed": False,
+            "versions": {},
+            "ran": False,
+            "phase_outcomes": {},
+            "write_enabled": False,
+        }
         request.config._e2e_session_state = state  # type: ignore[attr-defined]
+    state["write_enabled"] = e2e_config.enable_write
     yield
     state["versions"] = {
         "network_version": diagnostics.network_version,

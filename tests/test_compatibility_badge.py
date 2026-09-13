@@ -15,7 +15,9 @@ from update_compatibility import (  # noqa: E402
 
 
 def test_latest_network_version_picks_semver_max():
-    assert latest_network_version(["9.0.0", "10.5.67", "10.4.100", "unknown"]) == "10.5.67"
+    assert (
+        latest_network_version(["9.0.0", "10.5.67", "10.4.100", "unknown"]) == "10.5.67"
+    )
 
 
 def test_update_compatibility_writes_badge(tmp_path: Path):

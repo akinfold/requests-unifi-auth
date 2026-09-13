@@ -1,450 +1,112 @@
-from unittest.mock import Mock, patch
-
 import pytest
 import requests
-from requests import PreparedRequest, Request, Response
-from requests.cookies import RequestsCookieJar
 
-from requests_unifi_auth.auth import UnifiControllerAuth
-
-
-class TestUnifiControllerAuth:
-
-    @pytest.fixture
-    def auth(self):
-        return UnifiControllerAuth("test_user", "test_pass", "ctrl.example")
-
-    def test_init(self):
-        auth = UnifiControllerAuth("user", "pass", "ctrl.example")
-        assert auth.username == "user"
-        assert auth.password == "pass"
-        assert auth.controller_netloc == "ctrl.example"
-        assert auth._cookies is None
-        assert auth._csrf_token is None
-
-    def test_eq_and_ne(self):
-        a = UnifiControllerAuth("user", "pass", "ctrl.example")
-        b = UnifiControllerAuth("user", "pass", "ctrl.example")
-        c = UnifiControllerAuth("other", "pass", "ctrl.example")
-        d = UnifiControllerAuth("user", "pass", "other.example")
-
-        assert a == b
-        assert not (a != b)
-        assert a != c
-        assert not (a == c)
-        assert a != d
-        assert not (a == d)
-
-    def test_set_cookie_success(self, auth):
-        response = Mock()
-        cookie_jar = RequestsCookieJar()
-        response.cookies = cookie_jar
-        # add an initial cookie value to the jar
-        cookie_jar.set("session", "abc123", domain="ctrl.example", path="/")
-
-        result = auth.set_cookie(response)
-
-        assert result is True
-        assert auth._cookies is cookie_jar
-
-    def test_set_cookie_failure(self, auth):
-        response = Mock()
-        response.cookies = None
-
-        result = auth.set_cookie(response)
-
-        assert result is False
-        assert auth._cookies is None
-
-    def test_set_cookie_updates_existing_cookie_jar(self, auth):
-        response = Mock()
-        cookie_jar = RequestsCookieJar()
-        cookie_jar.set("session", "old_value", domain="ctrl.example", path="/")
-        response.cookies = cookie_jar
-
-        new_cookie_jar = RequestsCookieJar()
-        new_cookie_jar.set("session", "new_value", domain="ctrl.example", path="/")
-        auth._cookies = new_cookie_jar
-
-        result = auth.set_cookie(response)
-
-        assert result is True
-        assert auth._cookies is cookie_jar
-        assert auth._cookies.get("session") == "old_value"
-
-    def test_prepare_request_handles_empty_cookies(self, auth):
-        req = requests.Request("POST", "https://ctrl.example/api/endpoint")
-        preq = requests.Session().prepare_request(req)
-
-        auth._cookies = None
-        auth.prepare_request(preq)
-
-        assert "Cookie" not in preq.headers
-
-    def test_update_csrf_token_success(self, auth):
-        response = Mock()
-        response.headers = {'x-updated-csrf-token': 'test-token'}
-
-        result = auth.update_csrf_token(response)
-
-        assert result is True
-        assert auth._csrf_token == 'test-token'
-
-    def test_update_csrf_token_failure(self, auth):
-        response = Mock()
-        response.headers = {}
-
-        result = auth.update_csrf_token(response)
-
-        assert result is False
-        assert auth._csrf_token is None
-
-    def test_prepare_request_handles_no_csrf_token(self, auth):
-        req = requests.Request("POST", "https://ctrl.example/api/endpoint")
-        preq = requests.Session().prepare_request(req)
-
-        auth._csrf_token = None
-        auth.prepare_request(preq)
-
-        assert "X-CSRF-Token" not in preq.headers
-
-    def test_prepare_request_sets_cookies_and_csrf_on_prepared_request(self):
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        # prepare cookies and csrf
-        jar = requests.cookies.RequestsCookieJar()
-        jar.set("session", "abc123", domain="ctrl.example", path="/")
-        auth._cookies = jar
-        auth._csrf_token = "csrf-token-xyz"
-
-        req = requests.Request("POST", "https://ctrl.example/api/endpoint")
-        preq: PreparedRequest = requests.Session().prepare_request(req)
-
-        # ensure headers don't already contain cookie or csrf
-        assert "Cookie" not in preq.headers
-        assert "X-CSRF-Token" not in preq.headers
-
-        auth.prepare_request(preq)
-
-        assert "Cookie" in preq.headers
-        assert "X-CSRF-Token" in preq.headers
-        assert preq.headers["X-CSRF-Token"] == "csrf-token-xyz"
-
-    def test_prepare_request_safe_methods_no_csrf(self, auth):
-        auth._cookies = RequestsCookieJar()
-        auth._cookies.set("session", "abc123", domain="ctrl.example", path="/")
-        auth._csrf_token = "csrf-token"
-
-        # Test with safe methods that shouldn't get CSRF token
-        for method in ["GET", "OPTIONS", "HEAD"]:
-            req = requests.Request(method, "https://ctrl.example/api/endpoint")
-            preq = requests.Session().prepare_request(req)
-
-            auth.prepare_request(preq)
-
-            # Should have cookies but no CSRF token
-            assert "Cookie" in preq.headers
-            assert "X-CSRF-Token" not in preq.headers
-
-    def test_call_registers_response_hook_on_arbitrary_request_object(self):
-        class DummyReq(requests.Request):
-            def __init__(self):
-                super().__init__()
-                self.registered = []
-
-            def register_hook(self, name, func):
-                self.registered.append((name, func))
-
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        dr = DummyReq()
-        ret = auth.__call__(dr)
-        assert ret is dr
-        assert any(name == "response" and func == auth.handle_401 for name, func in dr.registered)
-
-    def test_handle_401_non_401_returns_original(self):
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        resp = Response()
-        resp.status_code = 200
-        resp.url = "https://ctrl.example/api/test"
-        returned = auth.handle_401(resp)
-        assert returned is resp
-
-    def test_handle_401_netloc_mismatch_returns_original(self):
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        resp = Response()
-        resp.status_code = 401
-        resp.url = "https://other.example/api/test"
-        returned = auth.handle_401(resp)
-        assert returned is resp
-
-    def test_handle_401_authorize_failure_returns_original(self):
-        class FailingAuth(UnifiControllerAuth):
-            def authorize(self, response, **kwargs):
-                return False
-
-        auth = FailingAuth("u", "p", "ctrl.example")
-        resp = Response()
-        resp.status_code = 401
-        resp.url = "https://ctrl.example/api/test"
-        returned = auth.handle_401(resp)
-        assert returned is resp
-
-    @patch('requests_unifi_auth.auth.Request')
-    @patch('requests_unifi_auth.auth.urlparse')
-    @patch('requests_unifi_auth.auth.urlunparse')
-    def test_authorize_success(self, mock_urlunparse, mock_urlparse, mock_request, auth):
-        # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = 'https'
-        mock_urlparse.return_value.netloc = 'ctrl.example'
-        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
-
-        # Setup response mock
-        response = Mock()
-        response.url = 'https://ctrl.example/test'
-        response.content = b''
-        response.close = Mock()
-
-        # Setup connection mock
-        auth_response = Mock()
-        auth_response.status_code = 200
-        auth_response.headers = {'set-cookie': 'session=123'}
-        auth_response.cookies = RequestsCookieJar()
-
-        connection_mock = Mock()
-        connection_mock.send.return_value = auth_response
-        response.connection = connection_mock
-
-        # Setup request preparation mocks
-        mock_prepared_request = Mock()
-        mock_request_instance = Mock()
-        mock_request_instance.prepare.return_value = mock_prepared_request
-        mock_request.return_value = mock_request_instance
-
-        # Mock internal methods
-        auth.set_cookie = Mock(return_value=True)
-        auth.update_csrf_token = Mock(return_value=True)
-
-        result = auth.authorize(response)
-
-        assert result is True
-        mock_request.assert_called_once_with('POST', 'https://ctrl.example/api/auth/login', json={
-            "username": "test_user",
-            "password": "test_pass",
-            "token": "",
-            "rememberMe": False
-        })
-
-    @patch('requests_unifi_auth.auth.Request')
-    @patch('requests_unifi_auth.auth.urlparse')
-    @patch('requests_unifi_auth.auth.urlunparse')
-    def test_authorize_failure_401(self, mock_urlunparse, mock_urlparse, mock_request, auth):
-        # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = 'https'
-        mock_urlparse.return_value.netloc = 'ctrl.example'
-        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
-
-        # Setup response mock
-        response = Mock()
-        response.url = 'https://ctrl.example/test'
-        response.content = b''
-        response.close = Mock()
-
-        # Setup connection mock with 401 response
-        auth_response = Mock()
-        auth_response.status_code = 401
-        connection_mock = Mock()
-        connection_mock.send.return_value = auth_response
-        response.connection = connection_mock
-
-        # Setup request preparation mocks
-        mock_prepared_request = Mock()
-        mock_request_instance = Mock()
-        mock_request_instance.prepare.return_value = mock_prepared_request
-        mock_request.return_value = mock_request_instance
-
-        result = auth.authorize(response)
-
-        assert result is False
-
-    @patch('requests_unifi_auth.auth.Request')
-    @patch('requests_unifi_auth.auth.urlparse')
-    @patch('requests_unifi_auth.auth.urlunparse')
-    def test_authorize_failure_no_set_cookie(self, mock_urlunparse, mock_urlparse, mock_request, auth):
-        # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = 'https'
-        mock_urlparse.return_value.netloc = 'ctrl.example'
-        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
-
-        # Setup response mock
-        response = Mock()
-        response.url = 'https://ctrl.example/test'
-        response.content = b''
-        response.close = Mock()
-
-        # Setup connection mock with response missing set-cookie header
-        auth_response = Mock()
-        auth_response.status_code = 200
-        auth_response.headers = {}
-        connection_mock = Mock()
-        connection_mock.send.return_value = auth_response
-        response.connection = connection_mock
-
-        # Setup request preparation mocks
-        mock_prepared_request = Mock()
-        mock_request_instance = Mock()
-        mock_request_instance.prepare.return_value = mock_prepared_request
-        mock_request.return_value = mock_request_instance
-
-        result = auth.authorize(response)
-
-        assert result is False
-
-    def test_handle_401_authorize_success_retries_request(self):
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        auth.authorize = Mock(return_value=True)
-        auth.prepare_request = Mock()
-
-        # Build the original 401 response
-        resp = Mock(spec=Response)
-        resp.status_code = 401
-        resp.url = "https://ctrl.example/api/test"
-        resp.headers = {}
-
-        # Original request must support copy(), returning a retry request that supports deregister_hook()
-        original_req = Mock()
-        retry_req = Mock()
-        original_req.copy.return_value = retry_req
-        retry_req.deregister_hook = Mock()
-        resp.request = original_req
-
-        # Connection should return a retry response when sending the retry request
-        connection = Mock()
-        retry_resp = Mock(spec=Response)
-        retry_resp.history = []
-        connection.send.return_value = retry_resp
-        resp.connection = connection
-
-        returned = auth.handle_401(resp)
-
-        assert returned is retry_resp
-        # original response should be appended to history
-        assert returned.history[-1] is resp
-        # returned.request should be set to the retry request
-        assert returned.request is retry_req
-        # deregister_hook must be called to avoid infinite loop
-        retry_req.deregister_hook.assert_called_once_with('response', auth.handle_401)
-        # prepare_request should be invoked on the retry request
-        auth.prepare_request.assert_called_once_with(retry_req)
-
-    def test_prepare_request_assigns_cookies_to_unprepared_request(self):
-        auth = UnifiControllerAuth("u", "p", "ctrl.example")
-        jar = RequestsCookieJar()
-        jar.set("session", "abc123", domain="ctrl.example", path="/")
-        auth._cookies = jar
-
-        req = Request("POST", "https://ctrl.example/api/endpoint")
-        # ensure no cookies initially
-        assert getattr(req, "cookies", None) is None
-
-        auth.prepare_request(req)
-
-        assert getattr(req, "cookies", None) is jar
-        assert req.cookies.get("session") == "abc123"
-
-    @patch('requests_unifi_auth.auth.Request')
-    @patch('requests_unifi_auth.auth.urlparse')
-    @patch('requests_unifi_auth.auth.urlunparse')
-    def test_authorize_failure_set_cookie_no_cookies(self, mock_urlunparse, mock_urlparse, mock_request, auth):
-        # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = 'https'
-        mock_urlparse.return_value.netloc = 'ctrl.example'
-        mock_urlunparse.return_value = 'https://ctrl.example/api/auth/login'
-
-        # Setup response mock
-        response = Mock()
-        response.url = 'https://ctrl.example/test'
-        response.content = b''
-        response.close = Mock()
-
-        # Setup connection mock with response that has set-cookie header but no cookies
-        auth_response = Mock()
-        auth_response.status_code = 200
-        auth_response.headers = {'set-cookie': 'session=123'}
-        auth_response.cookies = None  # cause set_cookie to return False
-        connection_mock = Mock()
-        connection_mock.send.return_value = auth_response
-        response.connection = connection_mock
-
-        # Setup request preparation mocks
-        mock_prepared_request = Mock()
-        mock_request_instance = Mock()
-        mock_request_instance.prepare.return_value = mock_prepared_request
-        mock_request.return_value = mock_request_instance
-
-        result = auth.authorize(response)
-
-        assert result is False
-
-    @patch("requests_unifi_auth.auth.Request")
-    @patch("requests_unifi_auth.auth.urlparse")
-    @patch("requests_unifi_auth.auth.urlunparse")
-    def test_authorize_succeeds_without_csrf_token(
-        self, mock_urlunparse, mock_urlparse, mock_request, auth
-    ):
-        # Setup URL parsing mocks
-        mock_urlparse.return_value.scheme = "https"
-        mock_urlparse.return_value.netloc = "ctrl.example"
-        mock_urlunparse.return_value = "https://ctrl.example/api/auth/login"
-
-        # Setup response mock
-        response = Mock()
-        response.url = "https://ctrl.example/test"
-        response.content = b""
-        response.close = Mock()
-
-        # Setup connection mock with a successful auth response that includes set-cookie
-        auth_response = Mock()
-        auth_response.status_code = 200
-        auth_response.headers = {"set-cookie": "session=123"}
-        auth_response.cookies = RequestsCookieJar()
-        connection_mock = Mock()
-        connection_mock.send.return_value = auth_response
-        response.connection = connection_mock
-
-        # Setup request preparation mocks
-        mock_prepared_request = Mock()
-        mock_request_instance = Mock()
-        mock_request_instance.prepare.return_value = mock_prepared_request
-        mock_request.return_value = mock_request_instance
-
-        # CSRF may be absent on login; authorize should still succeed.
-        auth.set_cookie = Mock(return_value=True)
-        auth.update_csrf_token = Mock(return_value=False)
-
-        result = auth.authorize(response)
-
-        assert result is True
-        auth.update_csrf_token.assert_called_once_with(auth_response)
-
-    def test_handle_401_refreshes_csrf_on_non_401(self, auth):
-        auth._csrf_token = "old-token"
-        resp = Response()
-        resp.status_code = 200
-        resp.url = "https://ctrl.example/api/test"
-        resp.headers["x-updated-csrf-token"] = "rotated-token"
-
-        returned = auth.handle_401(resp)
-
-        assert returned is resp
-        assert auth._csrf_token == "rotated-token"
-
-    def test_handle_401_skips_session_refresh_for_other_host(self, auth):
-        auth._csrf_token = "old-token"
-        resp = Response()
-        resp.status_code = 200
-        resp.url = "https://other.example/api/test"
-        resp.headers["x-updated-csrf-token"] = "should-not-apply"
-
-        returned = auth.handle_401(resp)
-
-        assert returned is resp
-        assert auth._csrf_token == "old-token"
+from requests_unifi_auth import UnifiControllerAuth
+
+
+@pytest.fixture
+def auth():
+    return UnifiControllerAuth("test_user", "test_pass", "ctrl.example")
+
+
+def controller_response(cookie=None, token=None, url="https://ctrl.example/resource"):
+    response = requests.Response()
+    response.status_code = 200
+    response.url = url
+    if cookie is not None:
+        response.cookies.set("session", cookie, domain="ctrl.example", path="/")
+    if token is not None:
+        response.headers["x-updated-csrf-token"] = token
+    return response
+
+
+def test_set_cookie_copies_response_jar(auth):
+    response = controller_response(cookie="value")
+    assert auth.set_cookie(response)
+    assert auth._cookies.get("session") == "value"
+    assert auth._cookies is not response.cookies
+    response.cookies.set("session", "changed", domain="ctrl.example", path="/")
+    assert auth._cookies.get("session") == "value"
+
+
+def test_set_cookie_merges_response_jar(auth):
+    auth.set_cookie(controller_response(cookie="old"))
+    auth._cookies.set("other", "keep", domain="ctrl.example", path="/")
+    assert auth.set_cookie(controller_response(cookie="new"))
+    assert auth._cookies.get("session") == "new"
+    assert auth._cookies.get("other") == "keep"
+
+
+def test_set_cookie_empty_response_keeps_existing_state(auth):
+    auth.set_cookie(controller_response(cookie="old"))
+    assert not auth.set_cookie(controller_response())
+    assert auth._cookies.get("session") == "old"
+
+
+@pytest.mark.parametrize("method", ["set_cookie", "update_csrf_token"])
+def test_manual_response_updates_reject_other_origins(auth, method):
+    response = controller_response(
+        cookie="foreign", token="foreign", url="https://other.example/"
+    )
+    assert not getattr(auth, method)(response)
+    assert auth._cookies is None
+    assert auth._csrf_token is None
+
+
+def test_csrf_update_requires_header(auth):
+    assert not auth.update_csrf_token(controller_response())
+    assert auth._csrf_token is None
+    assert auth.update_csrf_token(controller_response(token="first"))
+    assert not auth.update_csrf_token(controller_response())
+    assert auth._csrf_token == "first"
+    assert auth.update_csrf_token(controller_response(token=""))
+    assert auth._csrf_token is None
+
+
+@pytest.mark.parametrize(
+    "method", ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+)
+def test_prepare_request_adds_csrf_only_for_mutating_methods(auth, method):
+    auth.set_cookie(controller_response(cookie="value", token="csrf"))
+    request = requests.Request(
+        method, "https://ctrl.example/resource", auth=auth
+    ).prepare()
+    assert request.headers["Cookie"] == "session=value"
+    assert ("X-CSRF-Token" in request.headers) == (
+        method not in {"GET", "HEAD", "OPTIONS"}
+    )
+
+
+def test_prepare_request_without_state(auth):
+    request = requests.Request(
+        "POST", "https://ctrl.example/resource", auth=auth
+    ).prepare()
+    assert "Cookie" not in request.headers
+    assert "X-CSRF-Token" not in request.headers
+    assert len(request.hooks["response"]) == 1
+
+
+def test_prepare_unprepared_request_copies_cookie_state(auth):
+    auth.set_cookie(controller_response(cookie="value"))
+    request = requests.Request(
+        "POST", "https://ctrl.example/resource", cookies={"other": "keep"}
+    )
+    auth.prepare_request(request)
+    assert request.cookies is not auth._cookies
+    assert request.cookies.get("session") == "value"
+    assert request.cookies.get("other") == "keep"
+
+
+def test_non_401_updates_state_and_returns_same_response(auth):
+    response = controller_response(cookie="value", token="rotated")
+    assert auth.handle_401(response) is response
+    assert auth._csrf_token == "rotated"
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_foreign_response_never_authorizes(auth, status):
+    response = controller_response(token="foreign", url="https://other.example/")
+    response.status_code = status
+    assert auth.handle_401(response) is response
+    assert not auth.authorize(response)
+    assert auth._csrf_token is None

@@ -63,6 +63,7 @@ def test_env_overrides_file(tmp_path: Path):
         "UNIFI_E2E_PASSWORD=file-pass\n",
         encoding="utf-8",
     )
+    config.chmod(0o600)
     env = {
         "UNIFI_E2E_HOST": "from-env",
         "UNIFI_E2E_USERNAME": "file-user",

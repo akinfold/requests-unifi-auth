@@ -1,8 +1,10 @@
 from .auth import UnifiControllerAuth as UnifiControllerAuth
+from .auth import UnsafeRedirectError as UnsafeRedirectError
 
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __all__ = [
-    '__version__',
-    'UnifiControllerAuth',
+    "__version__",
+    "UnifiControllerAuth",
+    "UnsafeRedirectError",
 ]

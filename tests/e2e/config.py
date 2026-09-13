@@ -16,16 +16,21 @@ _TRUE = {"1", "true", "yes", "on"}
 class E2ESettings:
     host: str
     username: str
-    # Password is intentionally omitted from repr for pytest --showlocals safety
+    # Password is intentionally omitted from repr to keep failure output safe.
     verify_ssl: bool = False
-    skip_write: bool = False
+    enable_write: bool = False
     config_path: Optional[Path] = None
+
+    @property
+    def skip_write(self) -> bool:
+        """Compatibility alias; writes are disabled unless explicitly enabled."""
+        return not self.enable_write
 
     def __repr__(self) -> str:  # pragma: no cover - trivial
         return (
             f"E2ESettings(host={self.host!r}, username={self.username!r}, "
             f"password=***, verify_ssl={self.verify_ssl}, "
-            f"skip_write={self.skip_write}, config_path={self.config_path!r})"
+            f"enable_write={self.enable_write}, config_path={self.config_path!r})"
         )
 
 
@@ -67,8 +72,21 @@ def parse_dotenv(text: str) -> Dict[str, str]:
         key, _, value = line.partition("=")
         key = key.strip()
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        if value.startswith("'") and value.endswith("'") and len(value) >= 2:
+            value = value[1:-1].replace("'\\''", "'")
+        elif value.startswith('"') and value.endswith('"') and len(value) >= 2:
             value = value[1:-1]
+            decoded = []
+            escaped = False
+            for char in value:
+                if escaped:
+                    decoded.append({"n": "\n", "r": "\r", "t": "\t"}.get(char, char))
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                else:
+                    decoded.append(char)
+            value = "".join(decoded) + ("\\" if escaped else "")
         values[key] = value
     return values
 
@@ -113,8 +131,8 @@ def load_e2e_settings(
 ) -> Optional[tuple[E2ESettings, str]]:
     """Return (settings, password) or None if required fields are missing.
 
-    Password is returned separately so fixtures can avoid storing it on
-    objects that pytest may print via --showlocals.
+    Password is returned separately so fixtures do not store it on objects that
+    pytest may print in failure output.
     """
     env_map: Mapping[str, str] = os.environ if env is None else env
     path = config_path
@@ -134,7 +152,8 @@ def load_e2e_settings(
         host=host,
         username=username,
         verify_ssl=_flag(_get(env_map, file_values, "UNIFI_E2E_VERIFY_SSL"), False),
-        skip_write=_flag(_get(env_map, file_values, "UNIFI_E2E_SKIP_WRITE"), False),
+        enable_write=_flag(_get(env_map, file_values, "UNIFI_E2E_ENABLE_WRITE"), False)
+        and not _flag(_get(env_map, file_values, "UNIFI_E2E_SKIP_WRITE"), False),
         config_path=path if path is not None and path.is_file() else None,
     )
     return settings, password

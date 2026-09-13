@@ -22,10 +22,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout the code
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Configure git identity
         run: |
@@ -35,9 +35,9 @@ jobs:
       - name: Bump version
         id: bump
         run: |
-          previous=$(uvx bump-my-version show current_version)
-          uvx bump-my-version bump "${{ inputs.bump-type }}"
-          current=$(uvx bump-my-version show current_version)
+          previous=$(uvx bump-my-version==0.29.0 show current_version)
+          uvx bump-my-version==0.29.0 bump "${{ inputs.bump-type }}"
+          current=$(uvx bump-my-version==0.29.0 show current_version)
           echo "previous-version=${previous}" >> "$GITHUB_OUTPUT"
           echo "current-version=${current}" >> "$GITHUB_OUTPUT"
           echo "bumped=true" >> "$GITHUB_OUTPUT"
