@@ -65,5 +65,26 @@ jobs:
       - name: Generate coverage data
         run: uv run pytest --cov --cov-report json
 
-      - name: Update coverage badge
-        uses: we-cli/coverage-badge-action@8f6b0bd1b727cde6212c8c62d3329c4aac09fec3 # v1.0.1
+      - name: Check out badge branch
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: gh-pages
+          path: badge-site
+
+      - name: Build coverage badge
+        run: >-
+          uv run python scripts/build_coverage_badge.py
+          coverage.json badge-site/badges/coverage.svg
+
+      - name: Publish coverage badge
+        working-directory: badge-site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add badges/coverage.svg
+          if git diff --cached --quiet; then
+            echo "Coverage badge is unchanged."
+            exit 0
+          fi
+          git commit -m "Update coverage badge"
+          git push origin HEAD:gh-pages
