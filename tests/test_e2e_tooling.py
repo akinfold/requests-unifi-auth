@@ -28,7 +28,12 @@ from e2e.diagnostics import (  # noqa: E402
     DiagnosticsCollector,
     _sanitize_error,
 )
-from e2e.gating import REQUIRED_E2E_TESTS, e2e_run_is_complete  # noqa: E402
+from e2e.gating import (  # noqa: E402
+    REQUIRED_E2E_TESTS,
+    REQUIRED_READ_ONLY_E2E_TESTS,
+    WRITE_E2E_TEST,
+    e2e_run_is_complete,
+)
 from e2e.write_probe import run_disposable_write_round_trip  # noqa: E402
 
 
@@ -267,7 +272,7 @@ def test_compatibility_gate_requires_every_successful_phase() -> None:
         assert not e2e_run_is_complete(broken, collected, 0)
 
 
-def test_compatibility_gate_rejects_missing_skip_failure_and_write_disabled() -> None:
+def test_compatibility_gate_rejects_missing_skip_and_failure() -> None:
     state = _complete_gate_state()
     collected = set(REQUIRED_E2E_TESTS)
     assert not e2e_run_is_complete(state, {next(iter(collected))}, 0)
@@ -280,12 +285,20 @@ def test_compatibility_gate_rejects_missing_skip_failure_and_write_disabled() ->
     state["failed"] = True
     assert not e2e_run_is_complete(state, collected, 0)
 
-    state = _complete_gate_state()
-    state["write_enabled"] = False
-    assert not e2e_run_is_complete(state, collected, 0)
-
     assert not e2e_run_is_complete(_complete_gate_state(), collected, 1)
     assert not e2e_run_is_complete({}, collected, 0)
+
+
+def test_compatibility_gate_accepts_read_only_run() -> None:
+    state = _complete_gate_state()
+    state["write_enabled"] = False
+    state["phase_outcomes"][WRITE_E2E_TEST]["call"] = "skipped"  # type: ignore[index]
+
+    assert e2e_run_is_complete(state, set(REQUIRED_E2E_TESTS), 0)
+
+    test_name = next(iter(REQUIRED_READ_ONLY_E2E_TESTS))
+    state["phase_outcomes"][test_name]["call"] = "skipped"  # type: ignore[index]
+    assert not e2e_run_is_complete(state, set(REQUIRED_E2E_TESTS), 0)
 
 
 def test_diagnostics_fixture_publishes_write_flag_and_versions() -> None:
