@@ -14,7 +14,10 @@ from .diagnostics import DiagnosticsCollector
 from .safe_assertions import assert_secret_condition
 from .write_probe import run_disposable_write_round_trip
 
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.filterwarnings("ignore::urllib3.exceptions.InsecureRequestWarning"),
+]
 
 
 def test_login_on_401_then_authenticated_get(
