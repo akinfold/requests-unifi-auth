@@ -11,7 +11,7 @@ For a curl-like command-line interface built on this package, see
 
 ## Installation
 
-The next release requires Python 3.10 or later.
+Requires Python 3.10 or later.
 
 ```bash
 pip install requests-unifi-auth
