@@ -5,6 +5,7 @@ Rows are upserted automatically by a successful `pytest -m e2e` run; commit the 
 
 | Package | UniFi Network | UniFi OS | Date (UTC) | Result | Notes |
 |---|---|---|---|---|---|
+| 0.3.0 | 10.6.109 | 5.1.34.34103 | 2026-11-01 | pass | e2e |
 | 0.2.1 | 10.6.106 | 5.1.33.34087 | 2026-10-01 | pass | e2e |
 | 0.2.0 | 10.6.101 | 5.1.33.34087 | 2026-09-13 | pass | e2e |
 | 0.1.5 | 10.6.101 | 5.1.33.34087 | 2026-09-12 | pass | e2e |
